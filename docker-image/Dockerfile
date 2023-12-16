@@ -1,3 +1,4 @@
+# Start from Fedora image
 FROM fedora:latest
 
 RUN dnf install -y nebula iputils net-tools vim nc telnet iproute python3-pip
