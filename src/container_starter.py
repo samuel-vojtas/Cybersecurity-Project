@@ -10,7 +10,7 @@ import os, yaml, subprocess
 
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
-IMAGE = 'my-nebula-image2'
+IMAGE = 'nebula-image'
 PROJ_DIR = os.path.abspath(os.path.join(__file__, '..', '..'))
 CONTAINER_DIR = '/home/root/proj'
 GENERATED_DIR = os.path.join(PROJ_DIR, 'generated')
@@ -78,18 +78,38 @@ def init_container(name):
     ])
 
 def start_nebula(name):
+    """
+    Start Nebula service.
+    """
     subprocess.run([
         'docker', 'exec', '--detach', name, 'nebula', '-config', '/etc/nebula/config.yaml'
     ])
 
-def run_containers(network_config=NETWORK_CONFIG):
+def run_containers(network_config=NETWORK_CONFIG, init_lighthouse_container=True):
+    """
+    Run all containers and distribute them the files for Nebula network. Then, start the Nebula service on them.
+    """
     names = collect_names(network_config)
 
+    # Skip the first entry (lighthouse entry) in the script if lighthouse container should not be initialised
+    if not init_lighthouse_container:
+        names = names[1:]
+
+    # Distribute the files
     for name in names:
         init_container(name)
-        # Lighthouse is the first entry in the list, so it will always be started as first container
+
+    print('  [*] Nebula files were distributed among the containers')
+
+    if not init_lighthouse_container:
+        input('  [*] Waiting to start Nebula service on remote lighthouse')
+
+    print('  [*] Starting Nebula service on the containers')
+    # Start the Nebula service
+    for name in names:
+        # Lighthouse is the first entry in the list, so it will always be started as first container (if it is in the list)
         start_nebula(name)
 
 if __name__ == '__main__':
-    run_containers(network_config=NETWORK_CONFIG)
+    run_containers(network_config=NETWORK_CONFIG, init_lighthouse_container=True)
     

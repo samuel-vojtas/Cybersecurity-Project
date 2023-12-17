@@ -16,6 +16,9 @@ EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 
 def parse_config(network_config):
+    """
+    Parse main configuration file, whose path is provied in "network_config" argument.
+    """
     # Load YAML configuration
     with open(network_config, 'r') as fp:
         config = yaml.safe_load(fp)
@@ -46,33 +49,51 @@ def parse_config(network_config):
         print('  [*] Exiting...')
         exit(EXIT_FAILURE)
 
+    # Check format of IP for lighthouse
+    lighthouse_ip, lighthouse_subnet_length = config['lighthouse']['ip'].split('/')
+    if not lighthouse_ip or not lighthouse_subnet_length:
+        print('  [*] IP or subnetlength of the lighthouse was wrongly specified')
+        print('  [*] Exiting...')
+        exit(EXIT_FAILURE)
+
     # Check if all resources have properly specified information
     for idx, resource in enumerate(config['resources']):
         if 'name' not in resource or 'ip' not in resource:
             print('  [*] Not enough information about the resource no. {idx + 1}')
             print('  [*] Exiting...')
             exit(EXIT_FAILURE)
+        
+        # Check format for IP for the resource
+        ip, subnet_length = resource['ip'].split('/')
+        if not ip or not subnet_length:
+            print('  [*] IP or subnetlength of the resource was wrongly specified')
+            print('  [*] Exiting...')
+            exit(EXIT_FAILURE)
 
-    # TODO: Check if all resources have IP address in the format "IP/PREFIX"
-    # TODO: Check if lighthouse have IP address in the format "IP/PREFIX", routable IP address is just IP address without the PREFIX
-
-    print(f'  [*] Configuration file {NETWORK_CONFIG} was parsed')
+    print(f'  [*] Configuration file {network_config} was parsed')
 
     return config
 
 def get_default_config():
+    """
+    Retrieve a dictionary from default configuration for the resource.
+    """
     with open(DEFAULT_CONFIG, 'r') as fp:
         default_config = yaml.safe_load(fp)
 
     return default_config
 
 def init_ca():
+    """
+    Create new Certificate Authority (CA) for signing certificates.
+    """
+
     print('  [*] Creating new certificate authority')
 
     cmd = f'{PROJECT_DIR}/bin/nebula-cert ca -name "cybersecurity-project"'
     rv = subprocess.run(cmd.split(' '))
 
-    if rv == EXIT_FAILURE:
+    if rv.returncode == EXIT_FAILURE:
         print('  [*] Certificate authority already exists')
         print('  [*] Exiting...')
         exit(EXIT_FAILURE)
@@ -82,6 +103,9 @@ def init_ca():
     return EXIT_SUCCESS
 
 def is_ca_initialised():
+    """
+    Check if CA is already created, i.e. there is ca.key & ca.crt in generated files.
+    """
     rv = os.path.exists('ca.key') and os.path.exists('ca.crt')
     if rv:
         print('  [*] ca.crt & ca.key already exists')
@@ -126,7 +150,7 @@ def create_certificate(resource):
 
     rv = subprocess.run(cmd)
 
-    if rv == EXIT_FAILURE:
+    if rv.returncode == EXIT_FAILURE:
         print(f'  [*] Resource \"{name}\" could not be signed')
         print(f'  [*] Exiting...')
         exit(EXIT_FAILURE)
@@ -136,6 +160,9 @@ def create_certificate(resource):
     return EXIT_SUCCESS
 
 def init_lighthouse(global_config_lighthouse):
+    """
+    Initialise the lighthouse for the network.
+    """
 
     ip = global_config_lighthouse['ip']
     ip, subnet_length = ip.split('/')
@@ -144,12 +171,14 @@ def init_lighthouse(global_config_lighthouse):
     
     lighthouse_config = get_default_config()
 
+    # Set this resource to be the lighthouse
     lighthouse_config['lighthouse']['am_lighthouse'] = True
     # Add only the lighthouse to its static_host_map
     lighthouse_config['static_host_map'] = {
         ip: [routable_ip + ':' + routable_port]
     }
 
+    # Dump the configuration file for lighthouse
     with open('lighthouse-config.yaml', 'w') as fp:
         yaml.dump(lighthouse_config, fp)
 
@@ -158,6 +187,9 @@ def init_lighthouse(global_config_lighthouse):
     return EXIT_SUCCESS
 
 def init_resource(global_config_resource, global_config_lighthouse):
+    """
+    Initialise one resource of the network.
+    """
     name = global_config_resource['name']
     ip = global_config_resource['ip']
     ip, subnet_length = ip.split('/')
@@ -172,7 +204,7 @@ def init_resource(global_config_resource, global_config_lighthouse):
 
     resource_config = get_default_config()
 
-    # Add lighthouse to the static_host_map
+    # Resource has to know how to find the lighthouse -> add the lighthouse to the static_host_map
     resource_config['static_host_map'] = {
             lighthouse_ip: [lighthouse_routable_ip + ':' + lighthouse_routable_port]
     }
@@ -182,6 +214,7 @@ def init_resource(global_config_resource, global_config_lighthouse):
 
     # Set up firewall
     # Create new inbound firewall rule for each group the resource is in
+    # ICMP is allowed by default
     inbound_rules = [{
         'port': 'any',
         'host': 'any',
@@ -204,28 +237,43 @@ def init_resource(global_config_resource, global_config_lighthouse):
     
 
 def init_network(network_config):
+    """
+    Initialise network - thus the lighthouse, and all the resources.
+    """
     # All files will be created in PROJECT_DIR/generated directory
     generated_dir = os.path.join(PROJECT_DIR, 'generated')
     if not os.path.exists(generated_dir):
         os.mkdir(generated_dir)
+    else:
+        os.chdir(generated_dir)
+        contents = os.listdir(generated_dir)
+        if os.listdir(generated_dir) != []:
+            choice = input(f'  [*] Directory {generated_dir} already exists and it is not empty. Removing all its contents [Y/n] ')
+            if choice.lower() != 'y':
+                print('  [*] Exiting...')
+                exit(EXIT_FAILURE)
+            else:
+                for f in contents:
+                    os.remove(f)
 
-    os.chdir(os.path.join(PROJECT_DIR, 'generated'))
+    # Change directory there so all files will be created in this folder
+    os.chdir(generated_dir)
 
     config = parse_config(network_config)
 
+    # Do not initialise new CA if it is already initialised
     if not is_ca_initialised():
         init_ca()
 
+        # Creat certificates
         create_certificate(config['lighthouse'])
-
         for resource in config['resources']:
             create_certificate(resource)
 
+    # Create config files
     init_lighthouse(config['lighthouse'])
-
     for resource in config['resources']:
         init_resource(resource, config['lighthouse'])
-
 
 if __name__ == '__main__':
     init_network(NETWORK_CONFIG)

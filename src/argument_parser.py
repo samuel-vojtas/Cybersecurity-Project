@@ -31,6 +31,12 @@ def parse_args(argv, argc):
         help='specify configuration file for the network, default is ${PROJ}/conf/network-config.yaml'
     )
 
+    parser.add_argument(
+        '--no-lighthouse-container',
+        help='do not run a container for lighthouse',
+        action='store_true'
+    )
+
     args, unknown_args = parser.parse_known_args()
 
     if unknown_args:
