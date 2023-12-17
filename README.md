@@ -6,4 +6,4 @@
 
 ---
 
-More information about the project is in `docs/report.pdf`.
+More information about the project is in `docs/report-vojtas.pdf`.
